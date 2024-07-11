@@ -58,7 +58,6 @@ class Transaction
 
     public function calculateStatistics(array $transactions): array
     {
-        Log::emergency("caralha");
         if (empty($transactions)) {
             return [
                 'sum' => $this->formatFloat(0),
