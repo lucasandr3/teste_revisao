@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Exception;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use JsonException;
@@ -10,6 +11,10 @@ class Transaction
 {
     public const TRANSACTIONS_FILE = 'transactions.json';
     private const PRECISION = 2;
+
+    public function __construct(private readonly LockTransactions $lockTransactions)
+    {
+    }
 
     /**
      * @throws JsonException
@@ -31,29 +36,59 @@ class Transaction
 
     /**
      * @throws JsonException
+     * @throws \Exception
      */
     public function getTransactions(): array
     {
-        if (File::exists(base_path(self::TRANSACTIONS_FILE))) {
-            return json_decode(
-                File::get(base_path(self::TRANSACTIONS_FILE)),
-                true,
-                512,
-                JSON_THROW_ON_ERROR
-            );
+        $lock = $this->lockTransactions->lock();
+
+        if (!$lock) {
+            throw new Exception('Não foi possível iniciar o lock');
         }
 
-        return [];
+        try {
+            if (File::exists(base_path(self::TRANSACTIONS_FILE))) {
+                return json_decode(
+                    File::get(base_path(self::TRANSACTIONS_FILE)),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                );
+            }
+
+            return [];
+        } finally {
+            $this->lockTransactions->unLock($lock);
+        }
     }
 
     /**
      * @throws JsonException
+     * @throws Exception
      */
     public function saveTransaction(array $transactions): void
     {
-        $database = $this->getTransactions();
-        $database[] = $transactions;
-        File::put(base_path(self::TRANSACTIONS_FILE), json_encode($database, JSON_THROW_ON_ERROR));
+        $lock = $this->lockTransactions->lock();
+
+        if (!$lock) {
+            throw new \RuntimeException('Não foi possível iniciar o lock');
+        }
+
+        try {
+            if (File::exists(base_path(self::TRANSACTIONS_FILE))) {
+                $database = json_decode(
+                    File::get(base_path(self::TRANSACTIONS_FILE)),
+                    true,
+                    512,
+                    JSON_THROW_ON_ERROR
+                );
+            }
+
+            $database[] = $transactions;
+            File::put(base_path(self::TRANSACTIONS_FILE), json_encode($database, JSON_THROW_ON_ERROR));
+        } finally {
+            $this->lockTransactions->unLock($lock);
+        }
     }
 
     public function calculateStatistics(array $transactions): array
